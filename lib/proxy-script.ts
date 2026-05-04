@@ -41,9 +41,34 @@ export const PROXY_SCRIPT = `
   }
 
   function findGhlFormFor(styledForm) {
-    const ghlContainer = document.querySelector('.form-builder--wrap, #_builder-form');
-    if (ghlContainer) return ghlContainer.querySelector('form');
-    return document.querySelector('form:not([data-ghl-styled])');
+    // 1. Try common GHL containers in the main document
+    const ghlContainer = document.querySelector('.form-builder--wrap, #_builder-form, .ghl-form-v2, .ghl-form');
+    if (ghlContainer) {
+      const form = ghlContainer.tagName === 'FORM' ? ghlContainer : ghlContainer.querySelector('form');
+      if (form) return form;
+    }
+
+    // 2. Try any form that isn't our styled one
+    const otherForm = document.querySelector('form:not([data-ghl-styled])');
+    if (otherForm) return otherForm;
+
+    // 3. Search inside all IFRAMES (GHL often embeds forms here)
+    const iframes = document.querySelectorAll('iframe');
+    for (let i = 0; i < iframes.length; i++) {
+      try {
+        const frameDoc = iframes[i].contentDocument || iframes[i].contentWindow.document;
+        const frameForm = frameDoc.querySelector('.form-builder--wrap form, #_builder-form form, .ghl-form-v2, .ghl-form, form');
+        if (frameForm) {
+          console.log('GHL Proxy: Found form inside iframe', iframes[i]);
+          return frameForm;
+        }
+      } catch (e) {
+        // Cross-origin iframes might block access, which is fine
+        continue;
+      }
+    }
+
+    return null;
   }
 
   function showSpinner(btn) {
