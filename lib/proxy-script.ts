@@ -42,28 +42,28 @@ export const PROXY_SCRIPT = `
 
   function findGhlFormFor(styledForm) {
     // 1. Try common GHL containers in the main document
-    const ghlContainer = document.querySelector('.form-builder--wrap, #_builder-form, .ghl-form-v2, .ghl-form');
+    const ghlContainer = document.querySelector('.form-builder--wrap, #_builder-form, .ghl-form-v2, .ghl-form, [name="builder-form"]');
     if (ghlContainer) {
+      // If it's a form, great. If it's a div (like GHL often uses), we treat the div as the container.
       const form = ghlContainer.tagName === 'FORM' ? ghlContainer : ghlContainer.querySelector('form');
-      if (form) return form;
+      return form || ghlContainer; 
     }
 
     // 2. Try any form that isn't our styled one
     const otherForm = document.querySelector('form:not([data-ghl-styled])');
     if (otherForm) return otherForm;
 
-    // 3. Search inside all IFRAMES (GHL often embeds forms here)
+    // 3. Search inside all IFRAMES
     const iframes = document.querySelectorAll('iframe');
     for (let i = 0; i < iframes.length; i++) {
       try {
         const frameDoc = iframes[i].contentDocument || iframes[i].contentWindow.document;
-        const frameForm = frameDoc.querySelector('.form-builder--wrap form, #_builder-form form, .ghl-form-v2, .ghl-form, form');
-        if (frameForm) {
-          console.log('GHL Proxy: Found form inside iframe', iframes[i]);
-          return frameForm;
+        const frameContainer = frameDoc.querySelector('.form-builder--wrap, #_builder-form, .ghl-form-v2, .ghl-form, form');
+        if (frameContainer) {
+          const frameForm = frameContainer.tagName === 'FORM' ? frameContainer : frameContainer.querySelector('form');
+          return frameForm || frameContainer;
         }
       } catch (e) {
-        // Cross-origin iframes might block access, which is fine
         continue;
       }
     }
@@ -88,9 +88,9 @@ export const PROXY_SCRIPT = `
   }
 
   async function mirrorAndSubmit(styledForm) {
-    const ghlForm = findGhlFormFor(styledForm);
-    if (!ghlForm) {
-      console.error('GHL Proxy: Target GHL form not found.');
+    const ghlTarget = findGhlFormFor(styledForm);
+    if (!ghlTarget) {
+      console.error('GHL Proxy: Target GHL form/container not found.');
       alert('Error: Could not locate the target GoHighLevel form on this page.');
       return;
     }
@@ -99,7 +99,7 @@ export const PROXY_SCRIPT = `
     let missingFields = [];
 
     styledInputs.forEach(sInput => {
-      const gInput = ghlForm.querySelector(\`[name="\${sInput.name}"], [data-q="\${sInput.name}"]\`);
+      const gInput = ghlTarget.querySelector(\`[name="\${sInput.name}"], [data-q="\${sInput.name}"], #\${sInput.name}\`);
       if (gInput) {
         setNativeValue(gInput, sInput.value);
       } else {
@@ -111,16 +111,13 @@ export const PROXY_SCRIPT = `
       console.warn('GHL Proxy: Some fields were not found in GHL form:', missingFields);
     }
 
-    const requiredGhl = ghlForm.querySelectorAll('[data-required="true"] input, [data-required="true"] select');
-    requiredGhl.forEach(rg => {
-      if (!rg.value) console.warn('GHL Proxy: Required GHL field is empty:', rg.name || rg.placeholder);
-    });
-
-    const submitBtn = ghlForm.querySelector('button[type="submit"], input[type="submit"]');
+    const submitBtn = ghlTarget.querySelector('button[type="submit"], input[type="submit"], .button-element');
     if (submitBtn) {
       submitBtn.click();
+    } else if (ghlTarget.tagName === 'FORM') {
+      ghlTarget.submit();
     } else {
-      ghlForm.submit();
+      console.error('GHL Proxy: No submit button found in target container.');
     }
   }
 
