@@ -1,6 +1,6 @@
 /**
  * The canonical proxy script injected into the styled page.
- * Version: 2.0 (Self-contained)
+ * Version: 3.0 (Merged with User Improvements)
  */
 export const PROXY_SCRIPT = `
 <script id="ghl-proxy-script">
@@ -8,72 +8,48 @@ export const PROXY_SCRIPT = `
   if (window.__ghlProxyInstalled) return;
   window.__ghlProxyInstalled = true;
 
-  console.log('GHL Proxy Form Script Installed');
-
-  const style = document.createElement('style');
-  style.id = 'ghl-proxy-styles';
-  style.innerHTML = \`
-    .ghl-proxy-spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid rgba(255,255,255,.3);
-      border-radius: 50%;
-      border-top-color: #fff;
-      animation: ghl-spin 1s ease-in-out infinite;
-      margin-right: 8px;
-      vertical-align: middle;
-    }
-    @keyframes ghl-spin { to { transform: rotate(360deg); } }
-    .ghl-proxy-disabled { opacity: 0.6; cursor: not-allowed !important; pointer-events: none !important; }
-  \`;
-  document.head.appendChild(style);
+  function ensureStyles() {
+    if (document.getElementById('ghl-proxy-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'ghl-proxy-styles';
+    style.textContent = \`
+      @keyframes ghl-proxy-spin { to { transform: rotate(360deg); } }
+      .ghl-proxy-spinner {
+        display: inline-block;
+        width: 1.2em;
+        height: 1.2em;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: ghl-proxy-spin 0.7s linear infinite;
+        vertical-align: middle;
+      }
+      .ghl-proxy-disabled { opacity: 0.7; cursor: not-allowed !important; pointer-events: none !important; }
+    \`;
+    document.head.appendChild(style);
+  }
 
   function setNativeValue(el, value) {
-    const previousValue = el.value;
+    const prev = el.value;
     el.value = value;
-    const tracker = el._valueTracker;
-    if (tracker) {
-      tracker.setValue(previousValue);
-    }
+    if (el._valueTracker) el._valueTracker.setValue(prev);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  function findGhlFormFor(styledForm) {
+  function findGhlTarget() {
     const selectors = '.form-builder--wrap, #_builder-form, .ghl-form-v2, .ghl-form, [name="builder-form"], .hl_form-builder--main';
-    
-    // 1. Try common GHL containers in the main document, excluding our styled one
-    const ghlContainer = document.querySelector(selectors);
-    if (ghlContainer && !ghlContainer.hasAttribute('data-ghl-styled')) {
-      const form = ghlContainer.tagName === 'FORM' ? ghlContainer : ghlContainer.querySelector('form');
-      return form || ghlContainer; 
-    }
+    let target = document.querySelector(selectors);
+    if (target) return target;
 
-    // 2. Try any form or div that looks like a GHL form and isn't ours
-    const allForms = document.querySelectorAll('form, div[id*="form"], div[class*="form"]');
-    for (let f of allForms) {
-      if (!f.hasAttribute('data-ghl-styled') && f !== styledForm && (f.id || f.className)) {
-        // If it's a known GHL structure or just the only other thing on the page
-        if (f.id === '_builder-form' || f.classList.contains('form-builder--wrap')) return f;
-      }
-    }
-
-    // 3. Search inside all IFRAMES
     const iframes = document.querySelectorAll('iframe');
     for (let i = 0; i < iframes.length; i++) {
       try {
         const frameDoc = iframes[i].contentDocument || iframes[i].contentWindow.document;
-        const frameContainer = frameDoc.querySelector(selectors + ', form');
-        if (frameContainer) {
-          const frameForm = frameContainer.tagName === 'FORM' ? frameContainer : frameContainer.querySelector('form');
-          return frameForm || frameContainer;
-        }
-      } catch (e) {
-        continue;
-      }
+        const frameTarget = frameDoc.querySelector(selectors);
+        if (frameTarget) return frameTarget;
+      } catch (e) { continue; }
     }
-
     return null;
   }
 
@@ -83,62 +59,64 @@ export const PROXY_SCRIPT = `
     btn.dataset.originalHtml = btn.innerHTML;
     btn.style.minWidth = rect.width + 'px';
     btn.style.minHeight = rect.height + 'px';
-    btn.innerHTML = '<span class="ghl-proxy-spinner"></span> ' + (btn.innerText || 'Submitting...');
+    btn.innerHTML = '<span class="ghl-proxy-spinner"></span>';
     btn.classList.add('ghl-proxy-disabled');
+    btn.disabled = true;
   }
 
   function hideSpinner(btn) {
     if (!btn || !btn.dataset.originalHtml) return;
     btn.innerHTML = btn.dataset.originalHtml;
     btn.classList.remove('ghl-proxy-disabled');
+    btn.disabled = false;
   }
 
   async function mirrorAndSubmit(styledForm) {
-    const ghlTarget = findGhlFormFor(styledForm);
-    if (!ghlTarget) {
-      console.error('GHL Proxy: Target GHL form/container not found.');
+    const target = findGhlTarget();
+    if (!target) {
+      console.error('[GHL Proxy] Target form not found');
       alert('Error: Could not locate the target GoHighLevel form on this page.');
-      return;
+      return false;
     }
 
-    const styledInputs = styledForm.querySelectorAll('input[name], select[name], textarea[name]');
-    let missingFields = [];
-
-    styledInputs.forEach(sInput => {
-      const gInput = ghlTarget.querySelector(\`[name="\${sInput.name}"], [data-q="\${sInput.name}"], #\${sInput.name}\`);
-      if (gInput) {
-        setNativeValue(gInput, sInput.value);
-      } else {
-        missingFields.push(sInput.name);
-      }
+    styledForm.querySelectorAll('[name]').forEach(sInput => {
+      const name = sInput.getAttribute('name');
+      const gInput = target.querySelector('[name="' + name + '"], [data-q="' + name + '"], #' + name);
+      if (gInput) setNativeValue(gInput, sInput.value);
     });
 
-    if (missingFields.length > 0) {
-      console.warn('GHL Proxy: Some fields were not found in GHL form:', missingFields);
+    const ghlBtn = target.querySelector('button[type="submit"], input[type="submit"], .button-element');
+    if (ghlBtn) {
+      ghlBtn.click();
+      return true;
+    } else if (target.tagName === 'FORM') {
+      target.submit();
+      return true;
     }
-
-    const submitBtn = ghlTarget.querySelector('button[type="submit"], input[type="submit"], .button-element');
-    if (submitBtn) {
-      submitBtn.click();
-    } else if (ghlTarget.tagName === 'FORM') {
-      ghlTarget.submit();
-    } else {
-      console.error('GHL Proxy: No submit button found in target container.');
-    }
+    return false;
   }
 
-  document.addEventListener('submit', function(e) {
-    const form = e.target;
-    if (form.closest('.form-builder--wrap') || form.id === '_builder-form') return;
-    e.preventDefault();
-    const btn = form.querySelector('button[type="submit"], input[type="submit"]');
-    showSpinner(btn);
-    mirrorAndSubmit(form).catch(err => {
-      console.error('GHL Proxy Error:', err);
-      hideSpinner(btn);
-    });
-  }, true);
+  function init() {
+    ensureStyles();
+    document.addEventListener('submit', function(e) {
+      const form = e.target;
+      // If it's a real <form> tag, it's our styled UI (since GHL uses <div>)
+      if (form.tagName === 'FORM' && !form.closest('.form-builder--wrap')) {
+        e.preventDefault();
+        const btn = form.querySelector('button[type="submit"], input[type="submit"]');
+        showSpinner(btn);
+        mirrorAndSubmit(form).then(ok => {
+          if (!ok) hideSpinner(btn);
+        }).catch(() => hideSpinner(btn));
+      }
+    }, true);
+  }
 
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
 </script>
-`;
+\`;
