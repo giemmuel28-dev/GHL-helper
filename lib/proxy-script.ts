@@ -41,24 +41,30 @@ export const PROXY_SCRIPT = `
   }
 
   function findGhlFormFor(styledForm) {
-    // 1. Try common GHL containers in the main document
-    const ghlContainer = document.querySelector('.form-builder--wrap, #_builder-form, .ghl-form-v2, .ghl-form, [name="builder-form"]');
-    if (ghlContainer) {
-      // If it's a form, great. If it's a div (like GHL often uses), we treat the div as the container.
+    const selectors = '.form-builder--wrap, #_builder-form, .ghl-form-v2, .ghl-form, [name="builder-form"], .hl_form-builder--main';
+    
+    // 1. Try common GHL containers in the main document, excluding our styled one
+    const ghlContainer = document.querySelector(selectors);
+    if (ghlContainer && !ghlContainer.hasAttribute('data-ghl-styled')) {
       const form = ghlContainer.tagName === 'FORM' ? ghlContainer : ghlContainer.querySelector('form');
       return form || ghlContainer; 
     }
 
-    // 2. Try any form that isn't our styled one
-    const otherForm = document.querySelector('form:not([data-ghl-styled])');
-    if (otherForm) return otherForm;
+    // 2. Try any form or div that looks like a GHL form and isn't ours
+    const allForms = document.querySelectorAll('form, div[id*="form"], div[class*="form"]');
+    for (let f of allForms) {
+      if (!f.hasAttribute('data-ghl-styled') && f !== styledForm && (f.id || f.className)) {
+        // If it's a known GHL structure or just the only other thing on the page
+        if (f.id === '_builder-form' || f.classList.contains('form-builder--wrap')) return f;
+      }
+    }
 
     // 3. Search inside all IFRAMES
     const iframes = document.querySelectorAll('iframe');
     for (let i = 0; i < iframes.length; i++) {
       try {
         const frameDoc = iframes[i].contentDocument || iframes[i].contentWindow.document;
-        const frameContainer = frameDoc.querySelector('.form-builder--wrap, #_builder-form, .ghl-form-v2, .ghl-form, form');
+        const frameContainer = frameDoc.querySelector(selectors + ', form');
         if (frameContainer) {
           const frameForm = frameContainer.tagName === 'FORM' ? frameContainer : frameContainer.querySelector('form');
           return frameForm || frameContainer;

@@ -151,10 +151,14 @@ export async function vet(params: {
   }
 
   if (!hasNewProxy) {
+    // 3. Inject Proxy Script and tag the form
+    if (fixedHtml.includes('<form')) {
+      fixedHtml = fixedHtml.replace('<form', '<form data-ghl-styled="true"');
+    }
     if (fixedHtml.includes('</body>')) {
       fixedHtml = fixedHtml.replace('</body>', PROXY_SCRIPT + '\n</body>');
     } else {
-      fixedHtml += PROXY_SCRIPT;
+      fixedHtml += `\n${PROXY_SCRIPT}`;
     }
     issues.push({ code: 'proxy-script-injected', severity: 'auto-fixed', message: 'Injected canonical GHL proxy script.' });
   }
